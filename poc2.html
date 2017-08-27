@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Promise Chain Proof of Concept 2 - Multiple objects/classes</title>
+    </head>
+    <body>
+        <button id="runbutton" onclick="run();">Run</button>
+        <br/>
+        <h3>Log:</h3>
+        <pre id="log"></pre>
+        
+        <script>
+            "use strict";
+            function run() {
+                document.getElementById('runbutton').hidden = true;
+                clearLog();
+                log('Started run');
+                
+                var promiseChainClass = {
+                    /**
+                     * Return a promise chain of this object. Functions in the chain will execute in a non-concurrent way, 
+                     * waiting for the previous one to finish before executing the next one.
+                     * @returns {PromiseChain&obj1} Promise chain object with original object as its __proto__ and all specified functions mocked.
+                     */
+                    chain: function() {
+                        // Mock specified functions so they can be used in the promise chain.
+                        var prepare = function(chain, funcNames) {
+                            for (var i = 0; i < funcNames.length; i++) {
+                                var funcName = funcNames[i];
+                                chain[funcName] = function(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z) {
+                                    // We have to do this weird way of arguments because of a bug in Firefox
+                                    var args = [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z];
+                                    var realArgs = [];
+                                    args.some(function(item) {
+                                        if (typeof item === 'undefined') { return true; }
+                                        realArgs.push(item);
+                                    });
+                                    
+                                    chain.queue.push({funcName: this.funcName, args: realArgs});
+                                    return chain;
+                                }.bind({funcName: funcName});
+                            }
+                        };
+                        
+                        // Create the chain object on which the specified functions can be chained.
+                        var chain = {
+                            __proto__: this,
+                            queue: [],
+                            queuePointer: -1,
+                            executing: false,
+                            then: function(callback) {
+                                if (this.executing) {return Promise.reject('Promise chain is already executing')}
+                                this.executing = true;
+                                
+                                return new Promise(function(resolve, reject) {
+                                    var execNextFunc = function(endResult) {
+                                        if (this.queuePointer < this.queue.length - 1) {
+                                            this.queuePointer++;
+                                            var funcDescriptor = this.queue[this.queuePointer];
+                                            this.__proto__[funcDescriptor.funcName].apply(this.__proto__, funcDescriptor.args).then(execNextFunc.bind(this)).catch(reject);
+                                        } else {
+                                            this.queue = [];
+                                            this.queuePointer = -1;
+                                            this.executing = false;
+                                            if (typeof callback === 'function') { callback(endResult); }
+                                            resolve(endResult);
+                                        }
+                                    }
+                                    Promise.resolve().then(execNextFunc.bind(this));
+                                }.bind(this));
+                            }
+                        };
+                        
+                        prepare(chain, this.chainable);
+                        return chain;
+                    }
+                }
+                
+                var obj1 = {
+                    /** Regular object functions **/
+                    
+                    /** 
+                     * Some asynchronous function that returns a Promise. Can also be called seperately.
+                     * @returns {Promise}
+                     */
+                    func1: function(arg1) {
+                        return new Promise(function(resolve, reject) {
+                            setTimeout(function() {
+                                log('obj1 func1 arg1: ' + arg1);
+                                resolve('Some result');
+                            }, 2000);
+                        }.bind(this));
+                    },
+                    /** 
+                     * Some other asynchronous function that returns a Promise. Can also be called seperately.
+                     * @returns {Promise}
+                     */
+                    func2: function(arg1, arg2) {
+                        return new Promise(function(resolve, reject) {
+                            setTimeout(function() {
+                                log('obj1 func2 arg1: ' + arg1 + '  func2 arg2: ' + arg2);
+                                resolve('Some other result');
+                            }, 1000);
+                        }.bind(this));
+                    },
+                    
+                    
+                    /** Promise chain specific function and member **/
+                    
+                    /** Functions that can be used in a promise chain */
+                    chainable: ['func1', 'func2'],
+                    
+                    /** Chain function copied from promiseChainClass */
+                    chain: promiseChainClass.chain
+                };
+                
+                var obj2 = {
+                    /** Regular object functions **/
+                    
+                    /** 
+                     * Some asynchronous function that returns a Promise. Can also be called seperately.
+                     * @returns {Promise}
+                     */
+                    func1: function(arg1) {
+                        return new Promise(function(resolve, reject) {
+                            setTimeout(function() {
+                                log('obj2 func1 arg1: ' + arg1);
+                                resolve('Some result');
+                            }, 1500);
+                        }.bind(this));
+                    },
+                    /** 
+                     * Some other asynchronous function that returns a Promise. Can also be called seperately.
+                     * @returns {Promise}
+                     */
+                    func2: function(arg1) {
+                        return new Promise(function(resolve, reject) {
+                            setTimeout(function() {
+                                log('obj2 func2 arg1: ' + arg1);
+                                resolve('Some other result');
+                            }, 500);
+                        }.bind(this));
+                    },
+                    
+                    
+                    /** Promise chain specific function and member **/
+                    
+                    /** Functions that can be used in a promise chain */
+                    chainable: ['func1', 'func2'],
+                    
+                    /** Chain function copied from promiseChainClass */
+                    chain: promiseChainClass.chain
+                };
+                
+                // Real usage of the promise chains of obj1 and obj2 going at the same time.
+                obj1.chain().func1('wew').func2('lad', 's').func2('foo').func1('bar').then(function(endResult) {
+                    log('Done calling all functions and returned from promise chain');
+                    log('End result: ' + endResult);
+                    document.getElementById('runbutton').hidden = false;
+                });
+                
+                // You can leave out the final callback if you want.
+                obj2.chain().func2('some arg').func1('some other arg').then();
+            }
+            
+            function log(message) {
+                console.log(message);
+                document.getElementById('log').append(message + '\n');
+            }
+            function clearLog() {
+                document.getElementById('log').textContent = '';
+            }
+        </script>
+    </body>
+</html>
